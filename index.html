@@ -135,7 +135,21 @@
                     const result = await Tesseract.recognize(compressed, 'eng');
                     const text = result.data.text;
                     const amount = extractAmount(text);
-                    const date = extractDate(text, file.name);
+                    let date = extractDate(text);
+if (!date) {
+    if (window.innerWidth <= 768) {
+        // Se siamo su mobile e non viene trovata la data
+        const manual = prompt("📅 No se detectó la fecha en el ticket. Introduce la fecha manualmente (DD/MM/AAAA):");
+        if (manual && /^\d{2}\/\d{2}\/\d{4}$/.test(manual)) {
+            date = manual;
+        } else {
+            date = new Date().toLocaleDateString();
+        }
+    } else {
+        date = new Date().toLocaleDateString();
+    }
+}
+D
                     const category = detectCategory(text);
                     if (amount) {
                         expenses.push({ date, amount, category });
@@ -281,16 +295,44 @@
         }
 
         function exportPDF() {
-            const { jsPDF } = window.jspdf;
-            const doc = new jsPDF();
-            const month = document.getElementById("month").value;
-            const filtered = month === "all" ? expenses : expenses.filter(e => e.date.endsWith(month));
-            doc.text("GastoMar - Lista de Gastos", 10, 10);
-            filtered.forEach((e, i) => {
-                doc.text(`${e.date} - €${e.amount.toFixed(2)} [${e.category}]`, 10, 20 + i * 10);
-            });
-            doc.save("gastomar_gastos.pdf");
-        }
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    const month = document.getElementById("month").value;
+    const filtered = month === "all" ? expenses : expenses.filter(e => e.date.endsWith(month));
+
+    // Somma per categoria
+    const resumen = {};
+    filtered.forEach(e => {
+        if (!resumen[e.category]) resumen[e.category] = 0;
+        resumen[e.category] += e.amount;
+    });
+
+    // Creazione tabella
+    let y = 20;
+    doc.setFontSize(12);
+    doc.text("GastoMar - Resumen de gastos por categoría", 10, y);
+    y += 10;
+    doc.setFont("helvetica", "bold");
+    doc.text("Categoría", 10, y);
+    doc.text("Importe (€)", 100, y);
+    doc.setFont("helvetica", "normal");
+
+    let total = 0;
+    Object.entries(resumen).forEach(([cat, amt]) => {
+        y += 10;
+        doc.text(cat, 10, y);
+        doc.text(amt.toFixed(2), 100, y);
+        total += amt;
+    });
+
+    y += 15;
+    doc.setFont("helvetica", "bold");
+    doc.text("Total:", 10, y);
+    doc.text(total.toFixed(2) + " €", 100, y);
+
+    doc.save("gastomar_resumen.pdf");
+}
+
 
         function clearStorage() {
             if (confirm("¿Seguro que quieres borrar todos los datos?")) {
