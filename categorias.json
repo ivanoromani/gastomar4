@@ -1,0 +1,42 @@
+{
+  "Supermercado": [
+    "MERCADONA",
+    "LIDL",
+    "CARREFOUR",
+    "EROSKI",
+    "ALDI",
+    "MÜLLER",
+    "BIP BIP",
+    "HIPER",
+    "SPAR",
+    "DIA",
+    "SUPERMERCADO",
+    "HIPERMERCADO"
+  ],
+  "Farmacia": [
+    "FARMACIA",
+    "APOTECA",
+    "PARAFARMACIA"
+  ],
+  "Gasolinera": [
+    "REPSOL",
+    "CEPSA",
+    "BP",
+    "GALP",
+    "SHELL",
+    "PETRONOR",
+    "GASOLINA",
+    "DIESEL",
+    "COMBUSTIBLE"
+  ],
+  "Restaurante": [
+    "RESTAURANTE",
+    "BAR",
+    "CAFE",
+    "MENU",
+    "TAPAS",
+    "PIZZERIA",
+    "HAMBURGUESERIA"
+  ],
+  "Otros": []
+}

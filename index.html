@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GastoMar</title>
+    <script src="https://cdn.jsdelivr.net/npm/tesseract.js@4/dist/tesseract.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        .container {
+            max-width: 800px;
+            margin: auto;
+            background: white;
+            padding: 20px;
+            border-radius: 12px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+
+        input[type="file"] {
+            margin-bottom: 10px;
+        }
+
+        canvas {
+            margin-top: 30px;
+        }
+
+        .actions {
+            margin-top: 20px;
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .status-item {
+            margin-bottom: 10px;
+            font-size: 0.9em;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>GastoMar</h1>
+        <div class="actions">
+            <label for="lang">?? Language:</label>
+            <select id="lang" onchange="switchLang()">
+                <option value="es">Español</option>
+                <option value="en">English</option>
+            </select>
+        </div>
+        <p id="uploadLabel"><strong>Sube una o más fotos del ticket:</strong></p>
+        <input type="file" accept="image/*" multiple onchange="handleMultipleUploads(event)">
+        <div class="actions">
+            <label for="month">?? Mes:</label>
+            <select id="month" onchange="updateList(); updateChart();">
+                <option value="all">Todos</option>
+            </select>
+        </div>
+        <div id="status"></div>
+        <ul id="expensesList"></ul>
+
+        <div class="actions">
+            <button onclick="exportCSV()">?? Exportar CSV</button>
+            <button onclick="exportPDF()">?? Exportar PDF</button>
+            <button onclick="clearStorage()">??? Borrar todo</button>
+        </div>
+
+        <canvas id="chart" height="200"></canvas>
+    </div>
+
+    <script>
+    let expenses = JSON.parse(localStorage.getItem("gastomar_data") || "[]");
+    let categoryKeywords = {};
+
+    fetch("categorias.json")
+      .then(res => res.json())
+      .then(data => categoryKeywords = data)
+      .catch(err => console.error("No se pudo cargar categorias.json", err));
+
+    const translations = {
+      es: {
+        uploadLabel: "Sube una o más fotos del ticket:",
+        statusProcessing: "Procesando...",
+        statusDone: "Texto detectado",
+        errorAmount: "No se pudo detectar el importe.",
+        chartLabel: "Gastos (€)",
+      },
+      en: {
+        uploadLabel: "Upload one or more receipt photos:",
+        statusProcessing: "Processing...",
+        statusDone: "Text detected",
+        errorAmount: "Couldn't detect amount.",
+        chartLabel: "Expenses (€)",
+      }
+    };
+
+    switchLang();
+    updateMonthOptions();
+    updateList();
+    updateChart();
+
+    function getLang() {
+      return document.getElementById('lang').value;
+    }
+
+    function switchLang() {
+      const lang = getLang();
+      document.getElementById('uploadLabel').textContent = translations[lang].uploadLabel;
+    }
+
+    async function handleMultipleUploads(event) {
+      const files = Array.from(event.target.files);
+      const statusContainer = document.getElementById('status');
+      statusContainer.innerHTML = '';
+
+      for (const file of files) {
+        const statusEl = document.createElement('p');
+        statusEl.className = 'status-item';
+        statusEl.textContent = `${file.name}: ${translations[getLang()].statusProcessing}`;
+        statusContainer.appendChild(statusEl);
+
+        try {
+          const compressed = await compressImage(file);
+          const result = await Tesseract.recognize(compressed, 'eng');
+          const text = result.data.text;
+          const amount = extractAmount(text);
+          const date = extractDate(text) || new Date().toLocaleDateString();
+          const category = detectCategory(text);
+          if (amount) {
+            expenses.push({ date, amount, category });
+            localStorage.setItem("gastomar_data", JSON.stringify(expenses));
+            updateMonthOptions();
+            updateList();
+            updateChart();
+            statusEl.textContent = `${file.name}: €${amount.toFixed(2)} [${category}] ? (${date})`;
+          } else {
+            statusEl.textContent = `${file.name}: ${translations[getLang()].errorAmount}`;
+          }
+        } catch (error) {
+          console.error(error);
+          statusEl.textContent = `${file.name}: ? Error durante el procesamiento`;
+        }
+      }
+    }
+
+    function compressImage(file) {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onload = function(event) {
+          const img = new Image();
+          img.onload = function() {
+            const canvas = document.createElement('canvas');
+            canvas.width = 800;
+            canvas.height = img.height * (800 / img.width);
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            canvas.toBlob(resolve, 'image/jpeg', 0.6);
+          };
+          img.src = event.target.result;
+        };
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function extractAmount(text) {
+      const regex = /\b(\d+[\.,]\d{2})\b/g;
+      const matches = [...text.matchAll(regex)];
+      if (matches.length === 0) return null;
+      const lastMatch = matches[matches.length - 1][0];
+      return parseFloat(lastMatch.replace(',', '.'));
+    }
+
+    function extractDate(text) {
+      const regex = /(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})/;
+      const match = text.match(regex);
+      if (!match) return null;
+      const raw = match[1].replace(/\./g, '/').replace(/\-/g, '/');
+      return raw;
+    }
+
+    function detectCategory(text) {
+      const t = text.toUpperCase();
+      for (const [category, keywords] of Object.entries(categoryKeywords)) {
+        if (keywords.some(word => t.includes(word))) return category;
+      }
+      return "Otros";
+    }
+
+    function updateMonthOptions() {
+      const monthSelect = document.getElementById("month");
+      const months = Array.from(new Set(expenses.map(e => e.date.slice(3)))).sort();
+      monthSelect.innerHTML = '<option value="all">Todos</option>';
+      months.forEach(m => {
+        const opt = document.createElement("option");
+        opt.value = m;
+        opt.textContent = m;
+        monthSelect.appendChild(opt);
+      });
+    }
+
+    function updateList() {
+      const list = document.getElementById('expensesList');
+      list.innerHTML = '';
+      const month = document.getElementById("month").value;
+      const filtered = month === "all" ? expenses : expenses.filter(e => e.date.endsWith(month));
+      filtered.forEach(e => {
+        const li = document.createElement('li');
+        li.textContent = `${e.date} - €${e.amount.toFixed(2)} [${e.category}]`;
+        list.appendChild(li);
+      });
+    }
+
+    function updateChart() {
+      const ctx = document.getElementById('chart').getContext('2d');
+      const month = document.getElementById("month").value;
+      const filtered = month === "all" ? expenses : expenses.filter(e => e.date.endsWith(month));
+      const labels = filtered.map((e, i) => `${i + 1}. ${e.category}`);
+      const amounts = filtered.map(e => e.amount);
+
+      if (window.expenseChart) window.expenseChart.destroy();
+
+      window.expenseChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [{
+            label: translations[getLang()].chartLabel,
+            data: amounts,
+            backgroundColor: '#007bff'
+          }]
+        }
+      });
+    }
+
+    function exportCSV() {
+      const month = document.getElementById("month").value;
+      const filtered = month === "all" ? expenses : expenses.filter(e => e.date.endsWith(month));
+      let csv = "Fecha,Importe,Categoría\n";
+      filtered.forEach(e => {
+        csv += `${e.date},${e.amount.toFixed(2)},${e.category}\n`;
+      });
+      const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+      const link = document.createElement('a');
+      link.setAttribute('href', URL.createObjectURL(blob));
+      link.setAttribute('download', 'gastomar_gastos.csv');
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function exportPDF() {
+      const { jsPDF } = window.jspdf;
+      const doc = new jsPDF();
+      const month = document.getElementById("month").value;
+      const filtered = month === "all" ? expenses : expenses.filter(e => e.date.endsWith(month));
+      doc.text("GastoMar - Lista de Gastos", 10, 10);
+      filtered.forEach((e, i) => {
+        doc.text(`${e.date} - €${e.amount.toFixed(2)} [${e.category}]`, 10, 20 + i * 10);
+      });
+      doc.save("gastomar_gastos.pdf");
+    }
+
+    function clearStorage() {
+      if (confirm("¿Seguro que quieres borrar todos los datos?")) {
+        expenses = [];
+        localStorage.removeItem("gastomar_data");
+        updateList();
+        updateChart();
+        updateMonthOptions();
+      }
+    }
+    </script>
+</body>
+</html>
