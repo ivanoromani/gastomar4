@@ -135,7 +135,7 @@
                     const result = await Tesseract.recognize(compressed, 'eng');
                     const text = result.data.text;
                     const amount = extractAmount(text);
-                    const date = extractDate(text) || new Date().toLocaleDateString();
+                    const date = extractDate(text, file.name);
                     const category = detectCategory(text);
                     if (amount) {
                         expenses.push({ date, amount, category });
@@ -181,13 +181,34 @@
             return parseFloat(lastMatch.replace(',', '.'));
         }
 
-        function extractDate(text) {
-            const regex = /(\d{1,2}[\/\.\-]\d{1,2}[\/\.\-]\d{2,4})/;
-            const match = text.match(regex);
-            if (!match) return null;
-            const raw = match[1].replace(/\./g, '/').replace(/\-/g, '/');
-            return raw;
-        }
+        function extractDate(text, fileName) {
+  const patronesFecha = [
+    /\b(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})\b/,
+    /\b(\d{1,2})[ ]?(ENE|FEB|MAR|ABR|MAY|JUN|JUL|AGO|SEP|OCT|NOV|DIC)[ ]?(\d{2,4})\b/i
+  ];
+
+  for (let patron of patronesFecha) {
+    const match = text.match(patron);
+    if (match) {
+      let [_, dia, mes, año] = match;
+      if (isNaN(mes)) {
+        const meses = ["ENE", "FEB", "MAR", "ABR", "MAY", "JUN", "JUL", "AGO", "SEP", "OCT", "NOV", "DIC"];
+        mes = meses.findIndex(m => m === mes.toUpperCase()) + 1;
+      }
+      if (año.length === 2) año = "20" + año;
+      return `${año.padStart(4, '0')}-${String(mes).padStart(2, '0')}-${String(dia).padStart(2, '0')}`;
+    }
+  }
+
+  const matchArchivo = fileName.match(/(\d{4})[-_](\d{2})[-_](\d{2})/);
+  if (matchArchivo) {
+    return `${matchArchivo[1]}-${matchArchivo[2]}-${matchArchivo[3]}`;
+  }
+
+  const inserita = prompt("⚠️ Data non rilevata. Inserisci manualmente (AAAA-MM-GG):", "");
+  return inserita || new Date().toISOString().slice(0, 10);
+}
+
 
         function detectCategory(text) {
             const t = text.toUpperCase();
